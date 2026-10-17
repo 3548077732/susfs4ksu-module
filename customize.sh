@@ -2,6 +2,8 @@
 PATH=/data/adb/ksu/bin:/data/data/com.termux/files/usr/bin:$PATH
 KSU_BIN=/data/adb/ksu/bin/ksud
 DEST_BIN_DIR=/data/adb/ksu/bin
+MODULE_UPDATE_DIR=/data/adb/modules_update/susfs4ksu
+tmpfolder=/data/adb/ksu/susfs4ksu
 
 if [ -z "$KSU" ] ; then
 	abort '[!] SuSFS is for KernelSU only.'
@@ -83,6 +85,10 @@ if [ -n "$SUSFS_VERSION_RAW" ] 2>/dev/null; then
 	ui_print "[-] Kernel is using susfs $SUSFS_VERSION_RAW"	
 	# SUSFS_DECIMAL_MAIN = '1'
 	SUSFS_DECIMAL_MAIN=$(echo "$SUSFS_VERSION_RAW" | sed 's/^v//;' | cut -d'.' -f1)
+    # SUSFS_DECIMAL_SUB = '5'
+    SUSFS_DECIMAL_SUB=$(echo "$SUSFS_VERSION_RAW" | sed 's/^v//;' | cut -d'.' -f2)
+    # SUSFS_DECIMAL_PATCH = '3'
+    SUSFS_DECIMAL_PATCH=$(echo "$SUSFS_VERSION_RAW" | sed 's/^v//;' | cut -d'.' -f3)
 else
 	ui_print "[-] Kernel is using susfs v1.5.2"
 fi
@@ -162,6 +168,48 @@ for i in $files ; do
     fi
     rm $MODPATH/$i
 done
+
+# update the module.prop status and version immediately after installation if susfs is >= v1.5.3
+if [ -n "$SUSFS_VERSION_RAW" ] && [ "$SUSFS_DECIMAL_MAIN" -ge 1 ] && [ "$SUSFS_DECIMAL_PATCH" -ge 3 ] || [ "$SUSFS_DECIMAL_MAIN" -ge 2 ]; then
+    # Update module.prop with new version and description
+    description="description=status: ✅ SuS ඞ"
+    sed -i "s/^description=.*/$description/g" $MODPATH/module.prop
+    sed -i "s/^description=.*/$description/g" $MODULE_UPDATE_DIR/module.prop
+
+    # Replace only version number, keep suffix
+    sed -i "s/^version=.*\(-[^ ]*\)$/version=$SUSFS_VERSION_RAW\1/" $MODPATH/module.prop
+    sed -i "s/^version=.*\(-[^ ]*\)$/version=$SUSFS_VERSION_RAW\1/" $MODULE_UPDATE_DIR/module.prop
+
+    SUSFS_BIN=/data/adb/ksu/bin/ksu_susfs
+    susfs_features=$(${SUSFS_BIN} show enabled_features)
+    # Check if sus_su is supported
+    if ! echo "$susfs_features" | grep -q "CONFIG_KSU_SUSFS_SUS_SU"; then
+        sed -i "s/^sus_su=.*/sus_su=-1/" ${PERSISTENT_DIR}/config.sh
+    fi
+
+mkdir -p $tmpfolder/logs
+
+if [ ! -f $tmpfolder/susfs_stats.txt ] || [ ! -f $tmpfolder/susfs_stats1.txt ]; then
+    echo sus_map=0 >> ${tmpfolder}/susfs_stats.txt
+    echo sus_path=0 >> ${tmpfolder}/susfs_stats.txt
+    echo sus_mount=0 >> ${tmpfolder}/susfs_stats.txt
+    echo try_umount=0 >> ${tmpfolder}/susfs_stats.txt
+    echo sus_map=0 >> ${tmpfolder}/susfs_stats1.txt
+    echo sus_path=0 >> ${tmpfolder}/susfs_stats1.txt
+    echo sus_mount=0 >> ${tmpfolder}/susfs_stats1.txt
+    echo try_umount=0 >> ${tmpfolder}/susfs_stats1.txt
+fi
+
+touch $tmpfolder/logs/susfs_active
+cp -r $MODULE_UPDATE_DIR /data/adb/modules
+ui_print " "
+ui_print "****************************************"
+ui_print "      SUSFS4KSU Module installed        "
+ui_print "****************************************"
+ui_print " You don't need to reboot to access the "
+ui_print "                WebUI                   "
+ui_print "****************************************"
+fi
 
 rm -rf ${MODPATH}/tools
 rm ${MODPATH}/customize.sh
